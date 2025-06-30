@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technology Count Chart</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for creating charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        button:active {
+            transform: scale(0.95);
+            transition: transform 0.1s;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex items-center justify-center min-h-screen p-4">
+
+<div class="w-full max-w-4xl">
+    <!-- Chart Display Area -->
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 sm:p-8">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white">Terminology Count</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">Key terminology is detected by local LLM with your private RAG.</p>
+        </div>
+        <div class="relative h-96">
+            <canvas id="techChart"></canvas>
+        </div>
+    </div>
+
+    <!-- User Input Area -->
+    <div class="mt-6 p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-lg">
+        <div class="flex flex-col sm:flex-row gap-4">
+            <input type="text" id="techNameInput" placeholder="Enter a technology name (e.g., React)" class="flex-grow p-3 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button id="postDataBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 disabled:bg-gray-400">
+                Post Data
+            </button>
+        </div>
+        <p id="server-message" class="text-center text-gray-500 dark:text-gray-400 mt-4 h-5"></p>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('techChart').getContext('2d');
+
+    // --- Chart Configuration ---
+    const myTechChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Total Count', data: [], backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', borderWidth: 1, borderRadius: 8 }] },
+        options: {
+            responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            scales: {
+                x: { beginAtZero: true, ticks: { color: '#6b7280', stepSize: 1 }, grid: { color: '#4b5563' }, title: { display: true, text: 'Total Count', color: '#9ca3af' } },
+                y: { ticks: { color: '#6b7280' }, grid: { display: false } }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: { backgroundColor: 'rgba(0, 0, 0, 0.7)', callbacks: { label: (context) => `Count: ${context.parsed.x}` } }
+            }
+        }
+    });
+
+    // --- Function to update the chart with new data from the server ---
+    function updateChart(serverData) {
+        const techNames = Object.keys(serverData);
+        const techCounts = Object.values(serverData);
+
+        // Only update if the data has actually changed to avoid flickering
+        if (JSON.stringify(myTechChart.data.labels) === JSON.stringify(techNames) && JSON.stringify(myTechChart.data.datasets[0].data) === JSON.stringify(techCounts)) {
+            return; // No change, do nothing
+        }
+
+        const backgroundColors = techNames.map(() => `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 0.6)`);
+        const borderColors = backgroundColors.map(color => color.replace('0.6', '1'));
+
+        myTechChart.data.labels = techNames;
+        myTechChart.data.datasets[0].data = techCounts;
+        myTechChart.data.datasets[0].backgroundColor = backgroundColors;
+        myTechChart.data.datasets[0].borderColor = borderColors;
+        myTechChart.update();
+    }
+
+    // --- Event Listener for the Post Button ---
+    const postDataBtn = document.getElementById('postDataBtn');
+    const techNameInput = document.getElementById('techNameInput');
+    const serverMessage = document.getElementById('server-message');
+
+    postDataBtn.addEventListener('click', async () => {
+        const techName = techNameInput.value.trim();
+        if (!techName) {
+            serverMessage.textContent = 'Please enter a technology name.';
+            return;
+        }
+        try {
+            postDataBtn.disabled = true;
+            serverMessage.textContent = `Posting "${techName}"...`;
+            const response = await fetch('http://localhost:2025/api/post-tech', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: techName }),
+            });
+            if (!response.ok) throw new Error(`Server error: ${response.status}`);
+            const updatedCounts = await response.json();
+            updateChart(updatedCounts);
+            serverMessage.textContent = `Successfully posted "${techName}"!`;
+            techNameInput.value = '';
+        } catch (error) {
+            console.error('Failed to post data:', error);
+            serverMessage.textContent = 'Error: Could not connect to the server.';
+        } finally {
+            postDataBtn.disabled = false;
+        }
+    });
+
+    // --- NEW: Polling function to get latest data periodically ---
+    async function fetchLatestCounts() {
+        try {
+            const response = await fetch('http://localhost:2025/api/get-counts');
+            if (!response.ok) return; // Silently fail if server is down
+            const latestCounts = await response.json();
+            updateChart(latestCounts);
+        } catch (error) {
+            // Don't show an error message here to avoid spamming the user
+            console.warn("Polling failed. Server might be offline.");
+        }
+    }
+
+    // Start polling the server every 3 seconds (3000 milliseconds)
+    setInterval(fetchLatestCounts, 5000);
+    // Also fetch once immediately on page load
+    fetchLatestCounts();
+</script>
+</body>
+</html>

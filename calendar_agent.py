@@ -1,31 +1,34 @@
 # back_end_api.py
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory, render_template
 import json
 import logging
 from nexusync import NexuSync, rebuild_index
+import sqlite3
 
 app = Flask(__name__)
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 # Configuration Parameters
 # For non-openai model:
-# OPENAI_MODEL_YN = False
-# EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
+OPENAI_MODEL_YN = False
+EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
 # LANGUAGE_MODEL = "llama3.2"
+LANGUAGE_MODEL = "phi4"
+LOCAL_DB="settings.db"
 
 # For openai model: need to create .env in the src folder to include OPENAI_API_KEY = 'sk-xxx'
-OPENAI_MODEL_YN = True
-EMBEDDING_MODEL = "text-embedding-3-large"
-LANGUAGE_MODEL = "gpt-4o-mini"
+# OPENAI_MODEL_YN = True
+# EMBEDDING_MODEL = "text-embedding-3-large"
+# LANGUAGE_MODEL = "gpt-4o-mini"
 TEMPERATURE = 0.4
-INPUT_DIRS = ["sample_docs/"]  # Can include multiple paths
-CHROMA_DB_DIR = "chroma_db"
-INDEX_PERSIST_DIR = "index_storage"
-CHROMA_COLLECTION_NAME = "my_collection"
-CHUNK_SIZE = 1024
-CHUNK_OVERLAP = 20
+INPUT_DIRS = ["/mnt/d/Objectives/Root/Calendar/"]  # Can include multiple paths
+CHROMA_DB_DIR = "chroma_db/calendar"
+INDEX_PERSIST_DIR = "index_storage/calendar"
+CHROMA_COLLECTION_NAME = "calender"
+CHUNK_SIZE = 10240
+CHUNK_OVERLAP = 200
 RECURSIVE = True
 
 
@@ -146,6 +149,7 @@ ns = NexuSync(
     chunk_overlap=CHUNK_OVERLAP,
     chunk_size=CHUNK_SIZE,
     recursive=RECURSIVE,
+    base_url="http://localhost:11434"
 )
 
 
@@ -155,11 +159,79 @@ ns.initialize_stream_chat(
 )
 
 
+# --- Database Functions ---
+def init_database():
+    """Initializes the SQLite database and settings table."""
+    conn = sqlite3.connect(LOCAL_DB)
+    cursor = conn.cursor()
+
+    # Create table
+    cursor.execute('''
+                   CREATE TABLE IF NOT EXISTS settings (
+                                                           id INTEGER PRIMARY KEY,
+                                                           embedding_model TEXT NOT NULL,
+                                                           llm_model TEXT NOT NULL,
+                                                           temperature REAL NOT NULL,
+                                                           input_dirs TEXT NOT NULL
+                   )
+                   ''')
+
+    # Check if a default settings row exists
+    cursor.execute("SELECT COUNT(id) FROM settings WHERE id = 1")
+    exists = cursor.fetchone()[0]
+
+    # If no settings exist, insert default values
+    if not exists:
+        cursor.execute('''
+                       INSERT INTO settings (id, embedding_model, llm_model, temperature, input_dirs)
+                       VALUES (?, ?, ?, ?, ?)
+                       ''', (1, f'{EMBEDDING_MODEL}', f'{LANGUAGE_MODEL}', 0.4, 'sample_docs/'))
+
+    print("Database initialized successfully.")
+
+    conn.commit()
+    conn.close()
+
+def get_settings_from_db():
+    """Retrieves settings from the SQLite database."""
+    conn = sqlite3.connect(LOCAL_DB)
+    conn.row_factory = sqlite3.Row # This allows accessing columns by name
+    cursor = conn.cursor()
+    settings = cursor.execute("SELECT * FROM settings WHERE id = 1").fetchone()
+    conn.close()
+    return dict(settings) if settings else {}
+
+def save_settings_to_db(settings_data):
+    """Saves settings to the SQLite database."""
+    # The frontend sends a list for input_dirs, we'll store it as a comma-separated string
+    input_dirs_str = ', '.join(settings_data['input_dirs'])
+
+    conn = sqlite3.connect(LOCAL_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+                   UPDATE settings
+                   SET embedding_model = ?, llm_model = ?, temperature = ?, input_dirs = ?
+                   WHERE id = 1
+                   ''', (
+                       settings_data['embedding_model'],
+                       settings_data['llm_model'],
+                       settings_data['temperature'],
+                       input_dirs_str
+                   ))
+    conn.commit()
+    conn.close()
+
 # Root Route - Serve the index.html file
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
 
+
+@app.route('/get_settings', methods=['GET'])
+def get_settings():
+    """NEW: Endpoint to provide settings to the frontend."""
+    settings = get_settings_from_db()
+    return jsonify(settings)
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -242,6 +314,7 @@ def rebuild_index_route():
             chunk_overlap=CHUNK_OVERLAP,
             chunk_size=CHUNK_SIZE,
             recursive=RECURSIVE,
+            base_url="http://localhost:11434"
         )
 
         # Reinitialize NexuSync
@@ -257,6 +330,7 @@ def rebuild_index_route():
             chunk_overlap=CHUNK_OVERLAP,
             chunk_size=CHUNK_SIZE,
             recursive=RECURSIVE,
+            base_url="http://localhost:11434"
         )
 
         # Reinitialize the chat engine
@@ -268,7 +342,9 @@ def rebuild_index_route():
     except Exception as e:
         app.logger.error(f"Error rebuilding index: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-
+    finally:
+        # Save the new settings to the database
+        save_settings_to_db(data)
 
 @app.route("/reset_chat", methods=["POST"])
 def reset_chat():
@@ -291,5 +367,6 @@ def refresh_index():
 
 
 if __name__ == "__main__":
+    init_database()
     # Run the Flask app
     app.run(host="0.0.0.0", port=2024, debug=True)

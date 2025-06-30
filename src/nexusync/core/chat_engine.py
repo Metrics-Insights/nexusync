@@ -36,7 +36,7 @@ class ChatEngine:
             similarity_top_k (int, optional): Number of top similar documents to consider. Defaults to 3.
         """
         qa_template = PromptTemplate(text_qa_template)
-        memory = ChatMemoryBuffer.from_defaults(token_limit=3000)
+        memory = ChatMemoryBuffer.from_defaults(token_limit=64000)
         if not isinstance(self.index, VectorStoreIndex):
             raise ValueError("The index does not contain a valid VectorStoreIndex")
 

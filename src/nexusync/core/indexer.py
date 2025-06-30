@@ -13,7 +13,86 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from nexusync.utils.logging_config import get_logger
 from llama_index.core import Settings
+import hashlib
 
+SUPPORTED_DOCUMENTS = [
+    ".ics",
+    ".csv",
+    ".tsv",
+    ".doc",
+    ".docx",
+    ".odt",
+    ".epub",
+    ".org",
+    ".rst",
+    ".rtf",
+    ".md",
+    ".msg",
+    ".pdf",
+    ".heic",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+    ".bmp",
+    ".ppt",
+    ".pptx",
+    ".xlsx",
+    ".eml",
+    ".html",
+    ".xml",
+    ".txt",
+    ".json",
+]
+
+
+# --- Helper function for checksum generation ---
+def _generate_checksum(
+        input_dirs: List[str], recursive: bool, supported_exts: List[str]
+) -> str:
+    """
+    Generates a SHA256 checksum based on the file paths and modification times
+    of all supported documents in the input directories.
+    """
+    hasher = hashlib.sha256()
+    file_signatures = []
+
+    for dir_path in input_dirs:
+        if not os.path.isdir(dir_path):
+            continue  # Skip non-existent directories
+
+        # Use os.walk for recursive search, or os.listdir for non-recursive
+        if recursive:
+            for root, _, files in os.walk(dir_path):
+                for file in files:
+                    if any(file.endswith(ext) for ext in supported_exts):
+                        file_path = os.path.join(root, file)
+                        try:
+                            mtime = os.path.getmtime(file_path)
+                            file_signatures.append(f"{file_path}:{mtime}")
+                        except OSError:
+                            # File might be deleted between listing and statting
+                            continue
+        else:
+            for file in os.listdir(dir_path):
+                file_path = os.path.join(dir_path, file)
+                if os.path.isfile(file_path) and any(
+                        file.endswith(ext) for ext in supported_exts
+                ):
+                    try:
+                        mtime = os.path.getmtime(file_path)
+                        file_signatures.append(f"{file_path}:{mtime}")
+                    except OSError:
+                        continue
+
+    # Sort the signatures to ensure a consistent hash regardless of file system order
+    file_signatures.sort()
+
+    # Update the hash with the concatenated string of signatures
+    for signature in file_signatures:
+        hasher.update(signature.encode('utf-8'))
+
+    return hasher.hexdigest()
 
 class Indexer:
     """
@@ -76,27 +155,59 @@ class Indexer:
         Raises:
             ValueError: If no documents are found in the specified directories.
         """
+        checksum_path = os.path.join(self.index_persist_dir, "checksum.txt")
 
-        try:
+        # Step 1: Generate a checksum of the current state of documents
+        self.logger.info("Generating checksum for current documents...")
+        new_checksum = _generate_checksum(self.input_dirs, self.recursive, SUPPORTED_DOCUMENTS)
+        self.logger.info(f"Current document checksum: {new_checksum}")
+
+        # Step 2: Check if a rebuild is necessary
+        old_checksum = None
+        if (
+                os.path.exists(checksum_path)
+                and os.path.exists(self.index_persist_dir)
+                and os.path.exists(self.chroma_db_dir)
+        ):
+            try:
+                with open(checksum_path, "r") as f:
+                    old_checksum = f.read().strip()
+                self.logger.info(f"Found previous checksum: {old_checksum}")
+            except IOError as e:
+                self.logger.warning(f"Could not read previous checksum file: {e}. Forcing rebuild.")
+
+        if new_checksum and old_checksum == new_checksum:
+            self.logger.info("Checksums match. No changes detected in source documents. Skipping index rebuild.")
+
             self.storage_context = StorageContext.from_defaults(
                 persist_dir=self.index_persist_dir
             )
             self.index = load_index_from_storage(self.storage_context)
             self.logger.info("Index already built. Loading from disk.")
-        except FileNotFoundError:
+
+            return self.index# Bypass the entire rebuild process
+
+        self.logger.info("Document changes detected or first run. Proceeding with index rebuild.")
+
+        try:
             self.logger.warning("Index not found. Building a new index.")
+
             self.document_list = []
             total_files = 0
             for file_path in self.input_dirs:
                 if not os.path.isdir(file_path):
                     self.logger.error(f"Directory {file_path} does not exist.")
                     raise ValueError(f"Directory {file_path} does not exist.")
-                file_count = sum(len(files) for _, _, files in os.walk(file_path))
+                file_count = sum(
+                    len(files)
+                    for _, _, files in os.walk(file_path)
+                    if self.recursive or _ == file_path
+                )
                 total_files += file_count
                 documents = SimpleDirectoryReader(
-                    file_path, filename_as_id=True
+                    file_path, filename_as_id=True, recursive=self.recursive, required_exts=SUPPORTED_DOCUMENTS
                 ).load_data()
-                self.logger.info(f"Loaded {total_files} files from all directories.")
+                self.logger.info(f"Loaded {len(documents)} files from all directories.")
                 self.document_list.extend(documents)
 
             self.index = VectorStoreIndex.from_documents(self.document_list)
@@ -118,6 +229,15 @@ class Indexer:
         except Exception as e:
             self.logger.error(f"An unexpected error occurred during initiation: {e}")
             raise
+        finally:
+            # Save the new checksum after a successful build
+            try:
+                with open(checksum_path, "w") as f:
+                    f.write(new_checksum)
+                self.logger.info(f"Successfully built index and saved new checksum to {checksum_path}")
+            except IOError as e:
+                self.logger.error(f"Failed to save new checksum file: {e}")
+
         return self.index
 
     def refresh(self):
@@ -170,7 +290,7 @@ class Indexer:
         for input_dir in self.input_dirs:
             self.logger.info(f"Processing directory: {input_dir}")
             documents = SimpleDirectoryReader(
-                input_dir, recursive=self.recursive, filename_as_id=True
+                input_dir, recursive=self.recursive, filename_as_id=True, required_exts=SUPPORTED_DOCUMENTS
             ).load_data()
             total_documents += len(documents)
             loaded_file_count = self.get_index_stats()["num_documents"]

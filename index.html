@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/2.0.3/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <title>NexuSync Chat Interface</title>
+    <title>Personal Agent</title>
     <style>
         * {
             box-sizing: border-box;
@@ -182,6 +182,9 @@
             padding-top: 0.5rem;
             border-top: 1px solid #ccc;
         }
+        .sources span {
+            cursor: help;
+        }
         /* Add styles for Markdown content */
         .markdown-content {
             line-height: 1.6;
@@ -216,295 +219,329 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="settings-panel" id="settings-panel">
-            <div class="settings-content">
-                <h2>Settings</h2>
-                <div class="settings-group">
-                    <label for="embedding-model">Embedding Model:</label>
-                    <input type="text" id="embedding-model" value="BAAI/bge-base-en-v1.5">
-                </div>
-                <div class="settings-group">
-                    <label for="llm-model">Language Model:</label>
-                    <input type="text" id="llm-model" value="llama3.2">
-                </div>
-                <div class="settings-group">
-                    <label for="temperature">Temperature:</label>
-                    <input type="number" id="temperature" value="0.4" min="0" max="1" step="0.1">
-                </div>
-                <div class="settings-group">
-                    <label for="input-dirs">Input Directories:</label>
-                    <input type="text" id="input-dirs" value="sample_docs/">
-                </div>
-                <button id="apply-settings">Apply Settings</button>
+<div class="container">
+    <div class="settings-panel" id="settings-panel">
+        <div class="settings-content">
+            <h2>Settings</h2>
+            <div class="settings-group">
+                <label for="embedding-model">Embedding Model:</label>
+                <input type="text" id="embedding-model" value="BAAI/bge-base-en-v1.5">
             </div>
-        </div>
-        <div class="chat-area">
-            <div class="header">
-                <div class="header-left">
-                    <button id="toggle-settings" class="btn">☰</button>
-                    <span class="nexusync-title">NexuSync Chat</span>
-                </div>
-                <div class="header-buttons">
-                    <button id="refresh-index" class="btn" title="Refresh Index">🔄</button>
-                    <button id="reset-chat" class="btn" title="Reset Chat">🗑️</button>
-                </div>
+            <div class="settings-group">
+                <label for="llm-model">Language Model:</label>
+                <input type="text" id="llm-model" value="llama3.2">
             </div>
-            <div id="chat-messages" class="chat-messages">
-                <!-- Chat messages will be appended here -->
+            <div class="settings-group">
+                <label for="temperature">Temperature:</label>
+                <input type="number" id="temperature" value="0.4" min="0" max="1" step="0.1">
             </div>
-            <div class="input-area">
-                <input type="text" id="user-input" placeholder="Type your message here...">
-                <button id="send-button">Send</button>
+            <div class="settings-group">
+                <label for="input-dirs">Input Directories:</label>
+                <input type="text" id="input-dirs" value="sample_docs/">
             </div>
+            <button id="apply-settings">Apply Settings</button>
         </div>
     </div>
-    <div class="overlay" id="overlay"></div>
+    <div class="chat-area">
+        <div class="header">
+            <div class="header-left">
+                <button id="toggle-settings" class="btn">☰</button>
+                <span class="nexusync-title">Personal Agent</span>
+            </div>
+            <div class="header-buttons">
+                <button id="refresh-index" class="btn" title="Refresh Index">🔄</button>
+                <button id="reset-chat" class="btn" title="Reset Chat">🗑️</button>
+            </div>
+        </div>
+        <div id="chat-messages" class="chat-messages">
+        </div>
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="Type your message here...">
+            <button id="send-button">Send</button>
+        </div>
+    </div>
+</div>
+<div class="overlay" id="overlay"></div>
 
-    <script>
-        const chatMessages = document.getElementById('chat-messages');
-        const userInput = document.getElementById('user-input');
-        const sendButton = document.getElementById('send-button');
-        const toggleSettings = document.getElementById('toggle-settings');
-        const settingsPanel = document.getElementById('settings-panel');
-        const overlay = document.getElementById('overlay');
-        const applySettingsButton = document.getElementById('apply-settings');
-        const refreshIndexButton = document.getElementById('refresh-index');
-        const resetChatButton = document.getElementById('reset-chat');
+<script>
+    const chatMessages = document.getElementById('chat-messages');
+    const userInput = document.getElementById('user-input');
+    const sendButton = document.getElementById('send-button');
+    const toggleSettings = document.getElementById('toggle-settings');
+    const settingsPanel = document.getElementById('settings-panel');
+    const overlay = document.getElementById('overlay');
+    const applySettingsButton = document.getElementById('apply-settings');
+    const refreshIndexButton = document.getElementById('refresh-index');
+    const resetChatButton = document.getElementById('reset-chat');
 
-        toggleSettings.addEventListener('click', () => {
-            settingsPanel.classList.toggle('open');
-            overlay.classList.toggle('active');
-        });
+    // --- Event Listeners ---
+    document.addEventListener('DOMContentLoaded', loadSettingsFromServer);
 
-        overlay.addEventListener('click', () => {
-            settingsPanel.classList.remove('open');
-            overlay.classList.remove('active');
-        });
+    toggleSettings.addEventListener('click', () => {
+        settingsPanel.classList.toggle('open');
+        overlay.classList.toggle('active');
+    });
 
-        sendButton.addEventListener('click', sendMessage);
-        userInput.addEventListener('keypress', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                sendMessage();
-            }
-        });
+    overlay.addEventListener('click', () => {
+        settingsPanel.classList.remove('open');
+        overlay.classList.remove('active');
+    });
 
-        applySettingsButton.addEventListener('click', applySettings);
-        refreshIndexButton.addEventListener('click', refreshIndex);
-        resetChatButton.addEventListener('click', resetChat);
-
-        function addMessage(message, isUser = false) {
-            const messageElement = document.createElement('div');
-            messageElement.classList.add('message', isUser ? 'user-message' : 'assistant-message');
-            
-            if (!isUser) {
-                const downloadButton = document.createElement('button');
-                downloadButton.classList.add('download-pdf-button');
-                downloadButton.textContent = '📥 PDF';
-                downloadButton.onclick = () => downloadPdf(messageElement);
-                messageElement.appendChild(downloadButton);
-            }
-
-            const contentElement = document.createElement('div');
-            contentElement.classList.add('message-content');
-            contentElement.innerHTML = isUser ? escapeHTML(message) : formatResponse(message);
-            messageElement.appendChild(contentElement);
-
-            chatMessages.appendChild(messageElement);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+    sendButton.addEventListener('click', sendMessage);
+    userInput.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendMessage();
         }
+    });
 
-        async function sendMessage() {
-            const message = userInput.value.trim();
-            if (message === '') return;
+    applySettingsButton.addEventListener('click', applySettings);
+    refreshIndexButton.addEventListener('click', refreshIndex);
+    resetChatButton.addEventListener('click', resetChat);
 
-            addMessage(message, true);
-            userInput.value = '';
+    // --- Core Functions ---
 
-            const assistantMessageElement = document.createElement('div');
-            assistantMessageElement.classList.add('message', 'assistant-message');
-            const messageContent = document.createElement('div');
-            messageContent.classList.add('message-content');
-            messageContent.textContent = 'Thinking...';
-            assistantMessageElement.appendChild(messageContent);
+    function addMessage(message, isUser = false) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message', isUser ? 'user-message' : 'assistant-message');
 
+        if (!isUser) {
             const downloadButton = document.createElement('button');
             downloadButton.classList.add('download-pdf-button');
             downloadButton.textContent = '📥 PDF';
-            downloadButton.onclick = () => downloadPdf(assistantMessageElement);
-            assistantMessageElement.appendChild(downloadButton);
+            downloadButton.onclick = () => downloadPdf(messageElement);
+            messageElement.appendChild(downloadButton);
+        }
 
-            chatMessages.appendChild(assistantMessageElement);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+        const contentElement = document.createElement('div');
+        contentElement.classList.add('message-content');
+        contentElement.innerHTML = isUser ? escapeHTML(message) : formatResponse(message);
+        messageElement.appendChild(contentElement);
 
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message })
-                });
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
 
-                if (!response.ok) {
-                    throw new Error(`Server error: ${response.statusText}`);
-                }
+    async function sendMessage() {
+        const message = userInput.value.trim();
+        if (message === '') return;
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder('utf-8');
-                let accumulatedText = '';
+        addMessage(message, true);
+        userInput.value = '';
 
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        const assistantMessageElement = document.createElement('div');
+        assistantMessageElement.classList.add('message', 'assistant-message');
+        const messageContent = document.createElement('div');
+        messageContent.classList.add('message-content');
+        messageContent.textContent = 'Thinking...';
+        assistantMessageElement.appendChild(messageContent);
 
-                    for (const line of lines) {
-                        let data;
-                        try {
-                            data = JSON.parse(line);
-                        } catch (e) {
-                            console.error('Error parsing JSON:', e);
-                            continue;
-                        }
+        const downloadButton = document.createElement('button');
+        downloadButton.classList.add('download-pdf-button');
+        downloadButton.textContent = '📥 PDF';
+        downloadButton.onclick = () => downloadPdf(assistantMessageElement);
+        assistantMessageElement.appendChild(downloadButton);
 
-                        if (data.response) {
-                            accumulatedText += data.response;
-                            messageContent.innerHTML = formatResponse(accumulatedText);
-                            chatMessages.scrollTop = chatMessages.scrollHeight;
-                        }
+        chatMessages.appendChild(assistantMessageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
 
-                        if (data.error) {
-                            messageContent.textContent = `Error: ${data.error}`;
-                            chatMessages.scrollTop = chatMessages.scrollHeight;
-                            return;
-                        }
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: message })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.statusText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let accumulatedText = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+                for (const line of lines) {
+                    let data;
+                    try {
+                        data = JSON.parse(line);
+                    } catch (e) {
+                        console.error('Error parsing JSON:', e);
+                        continue;
+                    }
+
+                    // --- MODIFICATION START ---
+                    // This logic now handles both `response` and `sources` keys.
+                    let needsUpdate = false;
+
+                    if (data.response) {
+                        accumulatedText += data.response;
+                        needsUpdate = true;
+                    }
+
+                    if (data.sources) {
+                        // Append the sources with the marker that formatResponse expects.
+                        accumulatedText += '\n\n**Sources:**\n' + data.sources;
+                        needsUpdate = true;
+                    }
+
+                    if (needsUpdate) {
+                        messageContent.innerHTML = formatResponse(accumulatedText);
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
+                    // --- MODIFICATION END ---
+
+
+                    if (data.error) {
+                        messageContent.textContent = `Error: ${data.error}`;
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                        return;
                     }
                 }
-            } catch (error) {
-                console.error('Error during fetch:', error);
-                messageContent.textContent = `Error: ${error.message}`;
-                chatMessages.scrollTop = chatMessages.scrollHeight;
             }
+        } catch (error) {
+            console.error('Error during fetch:', error);
+            messageContent.textContent = `Error: ${error.message}`;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+    }
 
-        function formatResponse(responseText) {
-            const sourcesMarker = '\n\n**Sources:**\n';
-            const [response, sources] = responseText.split(sourcesMarker);
-            
-            // Parse the response text as Markdown
-            let formattedResponse = marked(response.trim());
-            
-            // Wrap the parsed Markdown in a div for styling
-            formattedResponse = `<div class="markdown-content">${formattedResponse}</div>`;
-            
-            if (sources) {
-                const sourcesList = sources.trim().split('\n').map(source => {
-                    return escapeHTML(source);
-                }).join('<br>');
-                formattedResponse += `<div class="sources"><strong>Sources:</strong><br>${sourcesList}</div>`;
+    // --- Settings Functions ---
+
+    async function loadSettingsFromServer() {
+        try {
+            const response = await fetch('/get_settings');
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.statusText}`);
             }
-            return formattedResponse;
+            const settings = await response.json();
+            document.getElementById('embedding-model').value = settings.embedding_model || '';
+            document.getElementById('llm-model').value = settings.llm_model || '';
+            document.getElementById('temperature').value = settings.temperature || 0.4;
+            document.getElementById('input-dirs').value = Array.isArray(settings.input_dirs) ? settings.input_dirs.join(', ') : (settings.input_dirs || '');
+        } catch (error) {
+            console.error('Error loading settings from server:', error);
         }
+    }
 
-        function escapeHTML(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
+    async function applySettings() {
+        const settings = {
+            embedding_model: document.getElementById('embedding-model').value,
+            llm_model: document.getElementById('llm-model').value,
+            temperature: parseFloat(document.getElementById('temperature').value),
+            input_dirs: document.getElementById('input-dirs').value.split(',').map(dir => dir.trim())
+        };
+        try {
+            const response = await fetch('/rebuild_index', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+            const result = await response.json();
+            if (response.ok) {
+                alert('Settings saved and index rebuilt successfully!');
+                settingsPanel.classList.remove('open');
+                overlay.classList.remove('active');
+            } else {
+                alert(`Error: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('Error applying settings:', error);
+            alert(`Error applying settings: ${error.message}`);
         }
+    }
 
-        async function applySettings() {
-            const settings = {
-                embedding_model: document.getElementById('embedding-model').value,
-                llm_model: document.getElementById('llm-model').value,
-                temperature: parseFloat(document.getElementById('temperature').value),
-                input_dirs: document.getElementById('input-dirs').value.split(',').map(dir => dir.trim())
-            };
-
+    async function refreshIndex() {
+        if (confirm('Are you sure you want to refresh the index? This may take some time.')) {
             try {
-                const response = await fetch('/rebuild_index', {
+                const response = await fetch('/refresh_index', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(settings)
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
                 const result = await response.json();
                 if (response.ok) {
-                    alert('Settings applied and index rebuilt successfully');
-                    settingsPanel.classList.remove('open');
-                    overlay.classList.remove('active');
+                    alert('Index refreshed successfully');
                 } else {
                     alert(`Error: ${result.error}`);
                 }
             } catch (error) {
-                console.error('Error applying settings:', error);
-                alert(`Error applying settings: ${error.message}`);
+                console.error('Error refreshing index:', error);
+                alert(`Error refreshing index: ${error.message}`);
             }
         }
+    }
 
-        async function refreshIndex() {
-            if (confirm('Are you sure you want to refresh the index? This may take some time.')) {
-                try {
-                    const response = await fetch('/refresh_index', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-
+    async function resetChat() {
+        if (confirm('Are you sure you want to reset the chat?')) {
+            try {
+                const response = await fetch('/reset_chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    chatMessages.innerHTML = '';
+                    alert('Chat history has been reset.');
+                } else {
                     const result = await response.json();
-                    if (response.ok) {
-                        alert('Index refreshed successfully');
-                    } else {
-                        alert(`Error: ${result.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error refreshing index:', error);
-                    alert(`Error refreshing index: ${error.message}`);
+                    alert(`Error: ${result.error}`);
                 }
+            } catch (error) {
+                console.error('Error resetting chat:', error);
+                alert(`Error resetting chat: ${error.message}`);
             }
         }
+    }
 
-        async function resetChat() {
-            if (confirm('Are you sure you want to reset the chat?')) {
-                try {
-                    const response = await fetch('/reset_chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
+    // --- Utility Functions ---
 
-                    if (response.ok) {
-                        chatMessages.innerHTML = '';
-                        alert('Chat history has been reset.');
-                    } else {
-                        const result = await response.json();
-                        alert(`Error: ${result.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error resetting chat:', error);
-                    alert(`Error resetting chat: ${error.message}`);
-                }
-            }
+    // --- MODIFICATION START ---
+    // This function is improved to show clean filenames instead of full paths.
+    function formatResponse(responseText) {
+        const sourcesMarker = '\n\n**Sources:**\n';
+        const [response, sources] = responseText.split(sourcesMarker);
+
+        let formattedResponse = marked(response.trim());
+        formattedResponse = `<div class="markdown-content">${formattedResponse}</div>`;
+
+        if (sources) {
+            const sourcesList = sources.trim().split('\n').map(source => {
+                const cleanSourcePath = source.trim().replace(/^- /, ''); // Remove leading dash and space
+                const fileName = cleanSourcePath.split(/[\\/]/).pop(); // Extract filename from path
+                // Show only the filename, but keep the full path in a 'title' attribute for hover-over tooltips
+                return `<span title="${escapeHTML(cleanSourcePath)}">${escapeHTML(fileName)}</span>`;
+            }).join('<br>');
+            formattedResponse += `<div class="sources"><strong>Sources:</strong><br>${sourcesList}</div>`;
         }
+        return formattedResponse;
+    }
+    // --- MODIFICATION END ---
 
-        function downloadPdf(content) {
-            const element = content.cloneNode(true);
-            
-            // Remove the download button from the cloned content
-            const downloadButton = element.querySelector('.download-pdf-button');
-            if (downloadButton) {
-                downloadButton.remove();
-            }
+    function escapeHTML(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
 
-            const opt = {
-                margin: 10,
-                filename: 'ai_response.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2 },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
-
-            html2pdf().from(element).set(opt).save();
+    function downloadPdf(content) {
+        const element = content.cloneNode(true);
+        const downloadButton = element.querySelector('.download-pdf-button');
+        if (downloadButton) {
+            downloadButton.remove();
         }
-
-    </script>
+        const opt = {
+            margin: 10,
+            filename: 'ai_response.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().from(element).set(opt).save();
+    }
+</script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 import shutil
 import os
-from nexusync.core.indexer import Indexer
+from nexusync.core.indexer import Indexer, SUPPORTED_DOCUMENTS, _generate_checksum
 from nexusync.utils.logging_config import get_logger
 from llama_index.core import Settings
 from typing import List
@@ -47,6 +47,8 @@ def rebuild_index(
     """
     logger.info("Starting index rebuild process...")
 
+    checksum_path = os.path.join(index_persist_dir, "checksum.txt")
+
     Settings.chunk_overlap = chunk_overlap
     Settings.chunk_size = chunk_size
     # Initialize the embedding and language model
@@ -60,7 +62,32 @@ def rebuild_index(
             ollama_model=language_model, temperature=temperature, base_url=base_url
         )
 
-    # Step 1: Delete the existing index directory
+    # Step 1: Generate a checksum of the current state of documents
+    logger.info("Generating checksum for current documents...")
+    new_checksum = _generate_checksum(input_dirs, recursive, SUPPORTED_DOCUMENTS)
+    logger.info(f"Current document checksum: {new_checksum}")
+
+    # Step 2: Check if a rebuild is necessary
+    old_checksum = None
+    if (
+            os.path.exists(checksum_path)
+            and os.path.exists(index_persist_dir)
+            and os.path.exists(chroma_db_dir)
+    ):
+        try:
+            with open(checksum_path, "r") as f:
+                old_checksum = f.read().strip()
+            logger.info(f"Found previous checksum: {old_checksum}")
+        except IOError as e:
+            logger.warning(f"Could not read previous checksum file: {e}. Forcing rebuild.")
+
+    if new_checksum and old_checksum == new_checksum:
+        logger.info("Checksums match. No changes detected in source documents. Skipping index rebuild.")
+        return # Bypass the entire rebuild process
+
+    logger.info("Document changes detected or first run. Proceeding with index rebuild.")
+
+    # Step 3: Delete the existing index directory
     if os.path.exists(index_persist_dir):
         logger.info(f"Deleting existing index directory: {index_persist_dir}")
         shutil.rmtree(index_persist_dir)
@@ -69,7 +96,7 @@ def rebuild_index(
             f"Index directory {index_persist_dir} does not exist. Skipping deletion."
         )
 
-    # Step 2: Delete the Chroma database directory
+    # Step 3: Delete the Chroma database directory
     if os.path.exists(chroma_db_dir):
         logger.info(f"Deleting existing Chroma DB directory: {chroma_db_dir}")
         shutil.rmtree(chroma_db_dir)
@@ -98,9 +125,9 @@ def rebuild_index(
             )
             total_files += file_count
             documents = SimpleDirectoryReader(
-                file_path, filename_as_id=True, recursive=recursive
+                file_path, filename_as_id=True, recursive=recursive, required_exts=SUPPORTED_DOCUMENTS
             ).load_data()
-            logger.info(f"Loaded {file_count} files from all directories.")
+            logger.info(f"Loaded {len(documents)} files from all directories.")
             document_list.extend(documents)
         index = VectorStoreIndex.from_documents(document_list)
         index.storage_context.persist(persist_dir=index_persist_dir)
@@ -121,3 +148,11 @@ def rebuild_index(
     except Exception as e:
         logger.error(f"An unexpected error occurred during initiation: {e}")
         raise
+    finally:
+        # Save the new checksum after a successful build
+        try:
+            with open(checksum_path, "w") as f:
+                f.write(new_checksum)
+            logger.info(f"Successfully built index and saved new checksum to {checksum_path}")
+        except IOError as e:
+            logger.error(f"Failed to save new checksum file: {e}")

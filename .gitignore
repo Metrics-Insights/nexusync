@@ -128,3 +128,7 @@ __pycache__/
 *.py[cod]
 
 test.py
+.idea/
+sample_docs/
+models/
+settings.db

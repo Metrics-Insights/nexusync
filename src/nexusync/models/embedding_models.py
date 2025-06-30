@@ -7,6 +7,7 @@ from llama_index.core import Settings
 import os
 from dotenv import load_dotenv
 from nexusync.utils.logging_config import get_logger
+from huggingface_hub import snapshot_download
 
 
 def set_embedding_model(
@@ -41,5 +42,12 @@ def set_embedding_model(
         )
         logger.info(f"Using OpenAI embedding model: {openai_model}")
     else:
-        Settings.embed_model = HuggingFaceEmbedding(model_name=huggingface_model)
+        # Replace 'model_name' with the actual model like 'sentence-transformers/all-MiniLM-L6-v2'
+        local_model_path = f"./models/{huggingface_model}"
+        if not os.path.exists(local_model_path):
+            logger.info(f"Downloading HuggingFace model: {huggingface_model}")
+            snapshot_download(repo_id=f"{huggingface_model}", local_dir=local_model_path, local_dir_use_symlinks=False)
+
+        Settings.embed_model = HuggingFaceEmbedding(model_name=local_model_path)
+        # Settings.embed_model = HuggingFaceEmbedding(model_name=huggingface_model)
         logger.info(f"Using HuggingFace embedding model: {huggingface_model}")
