@@ -25,6 +25,7 @@ LOCAL_DB="settings.db"
 TEMPERATURE = 0.4
 INPUT_DIRS = [
     "sample_docs/",
+    "/mnt/c/Users/ANDY-TP-001/OneDrive - Lenovo/Lenovo TP/Knowledge Base/",
     "/mnt/c/Users/ANDY-TP-001/OneDrive - Lenovo/Microsoft Teams Chat Files/"
 ]  # Can include multiple paths
 CHROMA_DB_DIR = "chroma_db/personal"
