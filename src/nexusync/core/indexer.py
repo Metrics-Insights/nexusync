@@ -207,7 +207,7 @@ class Indexer:
                 documents = SimpleDirectoryReader(
                     file_path, filename_as_id=True, recursive=self.recursive, required_exts=SUPPORTED_DOCUMENTS
                 ).load_data()
-                self.logger.info(f"Loaded {len(documents)} files from all directories.")
+                self.logger.info(f"Loaded {len(documents)} files from all directories, under {file_path}")
                 self.document_list.extend(documents)
 
             self.index = VectorStoreIndex.from_documents(self.document_list)
