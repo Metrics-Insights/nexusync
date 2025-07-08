@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 OPENAI_MODEL_YN = False
 EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
 # LANGUAGE_MODEL = "llama3.2"
-LANGUAGE_MODEL = "phi4"
+LANGUAGE_MODEL = "gemma3n"
 LOCAL_DB="settings.db"
 
 # For openai model: need to create .env in the src folder to include OPENAI_API_KEY = 'sk-xxx'
