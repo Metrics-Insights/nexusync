@@ -26,8 +26,8 @@ TEMPERATURE = 0.4
 INPUT_DIRS = [
     "sample_docs/",
     "/mnt/d/dev/Metrics-Insights/windows-driver-docs/",
-    "/mnt/c/Users/ANDY-TP-001/OneDrive - Lenovo/Lenovo TP/Knowledge Base/",
-    "/mnt/c/Users/ANDY-TP-001/OneDrive - Lenovo/Microsoft Teams Chat Files/"
+    "/mnt/d/Cloud/OneDrive - Lenovo/Lenovo TP/Knowledge Base/",
+    "/mnt/d/Cloud/OneDrive - Lenovo/Microsoft Teams Chat Files/"
 ]  # Can include multiple paths
 CHROMA_DB_DIR = "chroma_db/personal"
 INDEX_PERSIST_DIR = "index_storage/personal"
@@ -155,12 +155,6 @@ ns = NexuSync(
     chunk_size=CHUNK_SIZE,
     recursive=RECURSIVE,
     base_url="http://localhost:11434"
-)
-
-
-# Initialize the Chat Engine Once
-ns.initialize_stream_chat(
-    text_qa_template=text_qa_template, chat_mode="context", similarity_top_k=3
 )
 
 
